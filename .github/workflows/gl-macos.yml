@@ -100,7 +100,10 @@ jobs:
         working-directory: src
         run: |
           set -euo pipefail
-          jq -r '.script_b64 | select(. != "")' <<<"$PL" | base64 -d > /tmp/gl-job.sh
+          # macOS 自带 base64 是 BSD 版（-d 解码行为不保证），用 runner 必预装的 python3 解码
+          jq -r '.script_b64 | select(. != "")' <<<"$PL" \
+            | python3 -c 'import base64,sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))' \
+            > /tmp/gl-job.sh
           [ -s /tmp/gl-job.sh ] || { echo "empty job script" >&2; exit 1; }
           # 白名单 CI_* 变量注入（值经 jq @sh 安全引用）
           jq -r '(.env // {}) | to_entries[] | "export \(.key)=\(.value | @sh)"' <<<"$PL" > /tmp/gl-env.sh
