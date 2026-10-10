@@ -15,7 +15,7 @@
 #   3. 不引入第三方 action；不添加 pull_request 触发器（防 fork 注入读 secrets）。
 
 name: GitLab macOS bridge
-run-name: "${{ github.event.client_payload.gl_project }} · ${{ github.event.client_payload.correlation_id }}"
+run-name: "${{ github.event.client_payload.gl.project }} · ${{ github.event.client_payload.correlation_id }}"
 
 on:
   repository_dispatch:
@@ -26,7 +26,7 @@ permissions:
 
 concurrency:
   # 同项目+同分支+同作业：新 run 自动取代旧 run（对齐 GitLab interruptible 语义）
-  group: "gl-${{ github.event.client_payload.gl_project }}-${{ github.event.client_payload.gl_ref }}-${{ github.event.client_payload.gl_job_name }}"
+  group: "gl-${{ github.event.client_payload.gl.project }}-${{ github.event.client_payload.gl.ref }}-${{ github.event.client_payload.gl.job_name }}"
   cancel-in-progress: true
 
 env:
@@ -51,7 +51,7 @@ jobs:
         id: cfg
         run: |
           set -euo pipefail
-          id=$(jq -r '.gl_project_id // empty' <<<"$PL")
+          id=$(jq -r '.gl.project_id // empty' <<<"$PL")
           [ -n "$id" ] || { echo "payload missing gl_project_id" >&2; exit 1; }
           runner=$(jq -r --arg id "$id" '.[$id].runner // empty' <<<"$PROJECTS")
           if [ -z "$runner" ]; then
@@ -85,8 +85,8 @@ jobs:
           GL_PATH: ${{ needs.resolve.outputs.gl_path }}
         run: |
           set -euo pipefail
-          gl_server=$(jq -r '.gl_server | select(. != "")' <<<"$PL")
-          gl_sha=$(jq -r '.gl_sha | select(. != "")' <<<"$PL")
+          gl_server=$(jq -r '.gl.server | select(. != "")' <<<"$PL")
+          gl_sha=$(jq -r '.gl.sha | select(. != "")' <<<"$PL")
           [ -n "$gl_server" ] && [ -n "$gl_sha" ] && [ -n "$GL_PATH" ] || {
             echo "payload incomplete (gl_server/gl_sha/gl_path)" >&2; exit 1; }
           [ -n "$GL_PAT" ] || { echo "secret GL_PAT missing" >&2; exit 1; }
@@ -118,8 +118,8 @@ jobs:
             echo "no dist/ artifacts to upload"; exit 0
           fi
           corr=$(jq -r '.correlation_id' <<<"$PL")
-          gl_server=$(jq -r '.gl_server' <<<"$PL")
-          gl_pid=$(jq -r '.gl_project_id' <<<"$PL")
+          gl_server=$(jq -r '.gl.server' <<<"$PL")
+          gl_pid=$(jq -r '.gl.project_id' <<<"$PL")
           tgz="/tmp/${corr}.tgz"
           tar -czf "$tgz" dist
           url="https://${gl_server}/api/v4/projects/${gl_pid}/packages/generic/macos-bridge/${corr}/${corr}.tgz"
@@ -132,22 +132,22 @@ jobs:
         run: |
           set -euo pipefail
           st=success; [ "${{ job.status }}" = success ] || st=failed
-          gl_server=$(jq -r '.gl_server' <<<"$PL")
-          gl_pid=$(jq -r '.gl_project_id' <<<"$PL")
-          gl_sha=$(jq -r '.gl_sha' <<<"$PL")
+          gl_server=$(jq -r '.gl.server' <<<"$PL")
+          gl_pid=$(jq -r '.gl.project_id' <<<"$PL")
+          gl_sha=$(jq -r '.gl.sha' <<<"$PL")
           curl -sS --fail-with-body -o /dev/null -X POST \
             "https://${gl_server}/api/v4/projects/${gl_pid}/statuses/${gl_sha}" \
             -H "PRIVATE-TOKEN: ${GL_PAT}" \
             -d "name=github-macos" -d "state=${st}" \
             -d "target_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-            -d "description=$(jq -r '.gl_job_name' <<<"$PL")"
+            -d "description=$(jq -r '.gl.job_name' <<<"$PL")"
 
       - name: Summary
         if: always()
         run: |
           {
             echo "## GitLab macOS bridge"
-            echo "- job: $(jq -r '.gl_job_name' <<<"$PL") @ $(jq -r '.gl_sha' <<<"$PL" | head -c 8)"
+            echo "- job: $(jq -r '.gl.job_name' <<<"$PL") @ $(jq -r '.gl.sha' <<<"$PL" | head -c 8)"
             echo "- result: ${{ job.status }}"
-            echo "- GitLab pipeline: https://$(jq -r '.gl_server' <<<"$PL")/$(jq -r '.gl_project' <<<"$PL")/-/pipelines/$(jq -r '.gl_pipeline' <<<"$PL")"
+            echo "- GitLab pipeline: https://$(jq -r '.gl.server' <<<"$PL")/$(jq -r '.gl.project' <<<"$PL")/-/pipelines/$(jq -r '.gl.pipeline' <<<"$PL")"
           } >> "$GITHUB_STEP_SUMMARY"
