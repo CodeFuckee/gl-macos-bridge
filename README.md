@@ -27,8 +27,9 @@ GitLab ci/bridge.sh 轮询 run 终态 → 镜像为作业退出码（流水线�
 
 | 凭据 | 值 | 存放 | 权限 |
 | --- | --- | --- | --- |
-| GitHub 触发 PAT | （建议 fine-grained，仅本仓库） | GitLab 项目 CI 变量 `GH_BRIDGE_TOKEN`（masked+protected） | contents: read/write（dispatch 必需） |
+| GitHub 触发 PAT | fine-grained PAT（仅本仓库） | GitLab 项目 CI 变量 `GH_BRIDGE_TOKEN`（masked+protected） | contents: read/write（dispatch 必需） |
 | GitLab 项目 token | `GL_PAT_131`（项目 131 的 project access token，Developer 级，api scope） | 本仓库 Actions secret | 克隆源码 + 上传 package registry |
+| Tauri 签名私钥 | `GL131_TAURI_SIGNING_PRIVATE_KEY` / `GL131_TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 本仓库 Actions secret | workflow 注入 env，供 tauri-cli 签名（名字与 GitLab 变量一致） |
 | 作业内容 | script_b64 | payload（无凭据） | — |
 
 - payload 视为**半公开数据**：只放脚本与元数据，绝不放 token。

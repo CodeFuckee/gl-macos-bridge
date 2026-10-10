@@ -75,10 +75,17 @@ jobs:
   macos:
     needs: resolve
     runs-on: ${{ needs.resolve.outputs.runner }}
-    timeout-minutes: 30
+    # 重型作业（clippy/test 全量、release 冷编译、tauri 打包）冷构建可 1.5-2.5h；
+    # timeout 只是上限不产生闲置计费。GitLab 侧桥接作业 timeout(3h) 与
+    # GH_POLL_TIMEOUT_MIN(170) 必须大于本值预留轮询余量
+    timeout-minutes: 175
     env:
       PL: ${{ toJSON(github.event.client_payload) }}
       GL_PAT: ${{ secrets.GL_PAT_131 }}
+      # Tauri 更新器签名（tauri-cli v2.12 读取，名字与 GitLab 变量一致）。
+      # 密钥只走 GitHub secrets，绝不进 client_payload（payload 是公开数据）
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.GL131_TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.GL131_TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - name: Checkout GitLab source at exact SHA
         env:
