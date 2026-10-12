@@ -126,16 +126,16 @@ jobs:
           }
           cloned=0
           if [ -n "$MIRROR" ]; then
-            # 镜像优先（数据中心速度，绕开家庭隧道）。GitLab push mirror 同步有秒~分级
-            # 延迟：SHA 未同步时等待重试；家庭隧道晚高峰吞吐塌到 ~25KB/s 且连接 900s
-            # 必断（实测三次精确死于 15:00），隧道只作回退
-            for attempt in 1 2 3 4 5; do
+            # 镜像优先（数据中心速度，绕开家庭隧道）。GitLab push mirror 的追赶耗时
+            # 随家庭上行拥堵波动（实测秒级~20 分钟），等待窗口给足 10 分钟再回退隧道；
+            # 家庭隧道晚高峰吞吐塌到 ~25KB/s 且连接 900s 必断（实测三次精确死于 15:00）
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
               if clone_once "${MIRROR}.git" 2>/dev/null; then
                 echo "cloned from mirror (attempt ${attempt})"
                 cloned=1; break
               fi
-              [ "$attempt" = 5 ] && break
-              echo "mirror 尚无 ${gl_sha:0:8}（同步延迟），60s 后重试（${attempt}/5）"
+              [ "$attempt" = 10 ] && break
+              echo "mirror 尚无 ${gl_sha:0:8}（同步延迟），60s 后重试（${attempt}/10）"
               sleep 60
             done
           fi
