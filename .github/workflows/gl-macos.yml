@@ -37,10 +37,13 @@ env:
   #   gl_path: 克隆路径（不含 .git）；
   #   runners: kind → runner 标签（须匹配 resolve 步骤白名单）；单平台项目可只写
   #            用到的 kind，历史单 runner 字段仍兼容；
+  #   mirror:  (可选) GitHub 侧公开镜像仓库（GitLab push mirror 自动同步，SHA 一致）。
+  #            有镜像时优先克隆（数据中心速度，绕开家庭隧道），SHA 未同步则等待后回退隧道；
   #   status:  是否回传 GitLab commit status（该 API 需 Maintainer 级 token，默认关）。
   # 新接入 GitLab 仓库 = 加一行 + 加一个 GL_PAT_<id> secret。
   PROJECTS: >-
     {"131": {"gl_path": "chenkaidi/work-review",
+             "mirror": "https://github.com/CodeFuckee/Work-Review",
              "runners": {"macos": "macos-15",
                          "linux": "ubuntu-latest",
                          "linux-glibc2.35": "ubuntu-22.04"},
@@ -85,6 +88,7 @@ jobs:
             echo "runner=${runner}"
             echo "kind=${kind}"
             echo "gl_path=$(jq -r --arg id "$id" '.[$id].gl_path // empty' <<<"$PROJECTS")"
+            echo "mirror=$(jq -r --arg id "$id" '.[$id].mirror // empty' <<<"$PROJECTS")"
             echo "status=$(jq -r --arg id "$id" '.[$id].status // false' <<<"$PROJECTS")"
           } >> "$GITHUB_OUTPUT"
 
@@ -106,6 +110,7 @@ jobs:
       - name: Checkout GitLab source at exact SHA
         env:
           GL_PATH: ${{ needs.resolve.outputs.gl_path }}
+          MIRROR: ${{ needs.resolve.outputs.mirror }}
         run: |
           set -euo pipefail
           gl_server=$(jq -r '.gl.server | select(. != "")' <<<"$PL")
@@ -113,19 +118,39 @@ jobs:
           [ -n "$gl_server" ] && [ -n "$gl_sha" ] && [ -n "$GL_PATH" ] || {
             echo "payload incomplete (gl_server/gl_sha/gl_path)" >&2; exit 1; }
           [ -n "$GL_PAT" ] || { echo "secret GL_PAT missing" >&2; exit 1; }
-          # 克隆走家庭宽带隧道，长传输偶发 TLS 断流（实测 15 分钟后 curl 56 中断）——
-          # 重试 3 次，每次重新 init（fetch 失败后的半包状态不可复用）
-          for attempt in 1 2 3; do
+          clone_once() {  # $1=remote url；成功且拿到目标 SHA 返回 0
             rm -rf src
             git init -q src
-            git -C src remote add origin "https://oauth2:${GL_PAT}@${gl_server}/${GL_PATH}.git"
-            if git -C src -c protocol.version=2 fetch --depth=1 --no-tags origin "${gl_sha}"; then
-              break
-            fi
-            [ "$attempt" = 3 ] && { echo "clone 三连败（家庭链路抖动）" >&2; exit 1; }
-            echo "clone 第 ${attempt} 次失败（网络），30s 后重试…"
-            sleep 30
-          done
+            git -C src remote add origin "$1"
+            git -C src -c protocol.version=2 fetch --depth=1 --no-tags origin "${gl_sha}"
+          }
+          cloned=0
+          if [ -n "$MIRROR" ]; then
+            # 镜像优先（数据中心速度，绕开家庭隧道）。GitLab push mirror 同步有秒~分级
+            # 延迟：SHA 未同步时等待重试；家庭隧道晚高峰吞吐塌到 ~25KB/s 且连接 900s
+            # 必断（实测三次精确死于 15:00），隧道只作回退
+            for attempt in 1 2 3 4 5; do
+              if clone_once "${MIRROR}.git" 2>/dev/null; then
+                echo "cloned from mirror (attempt ${attempt})"
+                cloned=1; break
+              fi
+              [ "$attempt" = 5 ] && break
+              echo "mirror 尚无 ${gl_sha:0:8}（同步延迟），60s 后重试（${attempt}/5）"
+              sleep 60
+            done
+          fi
+          if [ "$cloned" = 0 ]; then
+            # 回退 GitLab 隧道（3 次重试；每次重新 init，半包状态不可复用）
+            for attempt in 1 2 3; do
+              if clone_once "https://oauth2:${GL_PAT}@${gl_server}/${GL_PATH}.git"; then
+                echo "cloned from GitLab tunnel (attempt ${attempt})"
+                cloned=1; break
+              fi
+              [ "$attempt" = 3 ] && { echo "clone 全部失败（镜像未同步 + 隧道拥塞）" >&2; exit 1; }
+              echo "tunnel clone 第 ${attempt} 次失败，30s 后重试…"
+              sleep 30
+            done
+          fi
           git -C src checkout --detach FETCH_HEAD
           echo "checked out $(git -C src log --oneline -1 | head -c 72)"
 
