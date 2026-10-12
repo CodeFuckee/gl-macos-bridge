@@ -47,6 +47,10 @@ env:
              "runners": {"macos": "macos-15",
                          "linux": "ubuntu-latest",
                          "linux-glibc2.35": "ubuntu-22.04"},
+             "status": false},
+     "133": {"gl_path": "chenkaidi/opentu",
+             "mirror": "https://github.com/CodeFuckee/opentu",
+             "runners": {"linux": "ubuntu-latest"},
              "status": false}}
 
 jobs:
