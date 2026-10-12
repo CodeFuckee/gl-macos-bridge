@@ -135,14 +135,12 @@ jobs:
             # 镜像优先（数据中心速度，绕开家庭隧道）。GitLab push mirror 的追赶耗时
             # 随家庭上行拥堵波动（实测秒级~20 分钟），等待窗口给足 10 分钟再回退隧道；
             # 家庭隧道晚高峰吞吐塌到 ~25KB/s 且连接 900s 必断（实测三次精确死于 15:00）
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do
-              if clone_once "${MIRROR}.git" 2>/dev/null; then
-                echo "cloned from mirror (attempt ${attempt})"
-                cloned=1; break
-              fi
-              [ "$attempt" = 10 ] && break
-              echo "mirror 尚无 ${gl_sha:0:8}（同步延迟），60s 后重试（${attempt}/10）"
-              sleep 60
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+              merr=$(clone_once "${MIRROR}.git" 2>&1) && { echo "cloned from mirror (attempt ${attempt})"; cloned=1; break; }
+              [ "$attempt" = 15 ] && { echo "mirror 15 次失败，末次错误："; echo "$merr" | tail -3; break; }
+              # 失败两类：镜像未同步（缺 sha）/ GitHub 对匿名拉取限流——统一等待重试
+              echo "mirror attempt ${attempt} 失败，90s 后重试"
+              sleep 90
             done
           fi
           if [ "$cloned" = 0 ]; then
