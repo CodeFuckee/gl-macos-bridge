@@ -1,20 +1,23 @@
-# GitLab macOS 作业桥接执行器
+# GitLab 作业桥接执行器（多平台：macOS / Linux）
 #
 # 触发：GitLab 桥接 job 调 repository_dispatch（event_type=gl-macos-job），
-#       client_payload 携带 correlation_id / gl_server / gl_project(_id) /
-#       gl_sha / env(白名单 CI 变量) / script_b64(作业脚本)。
-# 本仓库只做通用执行：按 allowlist 路由 → 按 SHA 克隆 GitLab 源码 →
-# 执行脚本 → dist/* 回传 GitLab generic package registry。
+#       client_payload 携带 correlation_id / gl{server,project,project_id,ref,sha,...} /
+#       kind(macos|linux) / env(白名单 CI 变量) / script_b64(作业脚本)。
+# 本仓库只做通用执行：按 allowlist+kind 路由 runner → 按 SHA 克隆 GitLab 源码 →
+# 执行脚本 → dist/* 回传 GitLab generic package registry（包名 <kind>-bridge）。
 # 门禁回传不靠这里：GitLab 侧桥接 job 轮询本 run 终态并镜像为退出码。
 #
 # 安全红线（改动本文件必须 review）：
 #   1. payload 是半公开数据——任何凭据绝不放 client_payload；
 #      凭据只经 secrets + env: 注入（本文件已如此）。
 #   2. payload 字段不得进入 run: 的 ${{ }} 直接插值（脚本注入），只经 env: 间接引用；
-#      结构性字段（runs-on/concurrency）只消费 allowlist 里的静态值并白名单校验。
-#   3. 不引入第三方 action；不添加 pull_request 触发器（防 fork 注入读 secrets）。
+#      结构性字段（runs-on/concurrency）只消费 allowlist 里的静态值并白名单校验——
+#      payload 的 kind 仅作为枚举选择器（macos|linux），用于在静态 allowlist 里挑标签。
+#   3. 不引入第三方 action（actions/cache 为 GitHub 官方，允许）；
+#      不添加 pull_request 触发器（防 fork 注入读 secrets）。
+#   4. runner 白名单刻意不含 *-xlarge/-large 付费档——需要时显式评审加入。
 
-name: GitLab macOS bridge
+name: GitLab runner bridge
 run-name: "${{ github.event.client_payload.gl.project }} · ${{ github.event.client_payload.correlation_id }}"
 
 on:
@@ -31,36 +34,48 @@ concurrency:
 
 env:
   # 项目注册表（allowlist）：GitLab project_id → 配置。
-  #   gl_path: 克隆路径（不含 .git）；runner: macOS runner 标签（须匹配下方校验）；
+  #   gl_path: 克隆路径（不含 .git）；
+  #   runners: kind → runner 标签（须匹配 resolve 步骤白名单）；单平台项目可只写
+  #            用到的 kind，历史单 runner 字段仍兼容；
   #   status:  是否回传 GitLab commit status（该 API 需 Maintainer 级 token，默认关）。
   # 新接入 GitLab 仓库 = 加一行 + 加一个 GL_PAT_<id> secret。
   PROJECTS: >-
-    {"131": {"gl_path": "chenkaidi/work-review", "runner": "macos-15", "status": false}}
+    {"131": {"gl_path": "chenkaidi/work-review",
+             "runners": {"macos": "macos-15",
+                         "linux": "ubuntu-latest",
+                         "linux-glibc2.35": "ubuntu-22.04"},
+             "status": false}}
 
 jobs:
   resolve:
     runs-on: ubuntu-latest
     outputs:
       runner: ${{ steps.cfg.outputs.runner }}
+      kind: ${{ steps.cfg.outputs.kind }}
       gl_path: ${{ steps.cfg.outputs.gl_path }}
       status: ${{ steps.cfg.outputs.status }}
     env:
       PL: ${{ toJSON(github.event.client_payload) }}
     steps:
-      - name: Resolve project from allowlist
+      - name: Resolve project and platform from allowlist
         id: cfg
         run: |
           set -euo pipefail
           id=$(jq -r '.gl.project_id // empty' <<<"$PL")
           [ -n "$id" ] || { echo "payload missing gl_project_id" >&2; exit 1; }
-          runner=$(jq -r --arg id "$id" '.[$id].runner // empty' <<<"$PROJECTS")
+          kind=$(jq -r '.kind // "macos"' <<<"$PL")
+          case "$kind" in macos|linux) ;; *)
+            echo "::error::bad kind '${kind}' (allowed: macos|linux)"; exit 1 ;; esac
+          runner=$(jq -r --arg id "$id" --arg k "$kind" \
+            '.[$id].runners[$k] // .[$id].runner // empty' <<<"$PROJECTS")
           if [ -z "$runner" ]; then
-            echo "::error::GitLab project ${id} not registered in PROJECTS allowlist"
+            echo "::error::GitLab project ${id} (kind ${kind}) not registered in PROJECTS allowlist"
             exit 1
           fi
           # runner 标签必须命中白名单：它是唯一允许流入 runs-on 的动态值
           case "$runner" in
-            macos-1[0-9]|macos-1[0-9]-intel|macos-2[0-9]|macos-2[0-9]-intel|macos-latest)
+            macos-1[0-9]|macos-1[0-9]-intel|macos-2[0-9]|macos-2[0-9]-intel|macos-latest|\
+            ubuntu-latest|ubuntu-latest-arm|ubuntu-2[0-9].0[0-9]|ubuntu-2[0-9]-arm)
               ;;
             *)
               echo "::error::runner label '${runner}' not in allowlist"
@@ -68,11 +83,12 @@ jobs:
           esac
           {
             echo "runner=${runner}"
+            echo "kind=${kind}"
             echo "gl_path=$(jq -r --arg id "$id" '.[$id].gl_path // empty' <<<"$PROJECTS")"
             echo "status=$(jq -r --arg id "$id" '.[$id].status // false' <<<"$PROJECTS")"
           } >> "$GITHUB_OUTPUT"
 
-  macos:
+  run:
     needs: resolve
     runs-on: ${{ needs.resolve.outputs.runner }}
     # 重型作业（clippy/test 全量、release 冷编译、tauri 打包）冷构建可 1.5-2.5h；
@@ -103,6 +119,19 @@ jobs:
           git -C src checkout --detach FETCH_HEAD
           echo "checked out $(git -C src log --oneline -1 | head -c 72)"
 
+      # Linux 作业：cargo registry/git 缓存（官方 actions/cache；产物小、1× 计费下
+      # 省时直接省排队）。key 含 lockfile 哈希，restore-keys 兜底近似命中
+      - name: Restore cargo caches (linux)
+        if: needs.resolve.outputs.kind == 'linux'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: glbridge-linux-cargo-${{ hashFiles('src/**/Cargo.lock') }}
+          restore-keys: |
+            glbridge-linux-cargo-
+
       - name: Run GitLab job script
         working-directory: src
         run: |
@@ -127,9 +156,10 @@ jobs:
           corr=$(jq -r '.correlation_id' <<<"$PL")
           gl_server=$(jq -r '.gl.server' <<<"$PL")
           gl_pid=$(jq -r '.gl.project_id' <<<"$PL")
+          pkg="$(jq -r '.kind // "macos"' <<<"$PL")-bridge"
           tgz="/tmp/${corr}.tgz"
           tar -czf "$tgz" dist
-          url="https://${gl_server}/api/v4/projects/${gl_pid}/packages/generic/macos-bridge/${corr}/${corr}.tgz"
+          url="https://${gl_server}/api/v4/projects/${gl_pid}/packages/generic/${pkg}/${corr}/${corr}.tgz"
           curl -sS --fail-with-body -X PUT "$url" \
             -H "PRIVATE-TOKEN: ${GL_PAT}" --upload-file "$tgz"
           echo "artifact → ${url}"

@@ -1,7 +1,10 @@
 # gl-macos-bridge
 
-把自建 GitLab（`home.chenkaidi.top:509`）上只能在 macOS 执行的 CI 作业，
-桥接到 **GitHub Actions 托管 macOS runner** 上执行。一台常断网的 MacBook 不再是瓶颈。
+把自建 GitLab（`home.chenkaidi.top:509`）上**本机跑不了/跑不稳**的 CI 作业桥接到
+**GitHub Actions 托管 runner** 上执行——2026-10 起为多平台执行器：`kind=macos` 路由
+macOS（Apple Silicon，一次性 VM），`kind=linux` 路由 Ubuntu（`ubuntu-latest` /
+`ubuntu-22.04` GLIBC 基线档）。仓库名是历史遗留；workflow 文件与事件类型
+（`gl-macos.yml` / `gl-macos-job`）保持不变以兼容存量调用方。
 
 ## 工作原理
 
