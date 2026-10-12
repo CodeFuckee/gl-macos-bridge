@@ -56,6 +56,7 @@ jobs:
       runner: ${{ steps.cfg.outputs.runner }}
       kind: ${{ steps.cfg.outputs.kind }}
       gl_path: ${{ steps.cfg.outputs.gl_path }}
+      mirror: ${{ steps.cfg.outputs.mirror }}
       status: ${{ steps.cfg.outputs.status }}
     env:
       PL: ${{ toJSON(github.event.client_payload) }}
