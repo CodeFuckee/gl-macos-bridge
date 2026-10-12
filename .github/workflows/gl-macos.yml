@@ -106,7 +106,8 @@ jobs:
     timeout-minutes: 175
     env:
       PL: ${{ toJSON(github.event.client_payload) }}
-      GL_PAT: ${{ secrets.GL_PAT_131 }}
+      # 按项目动态索引 GitLab token secret（GL_PAT_<project_id>）——多项目共用执行器
+      GL_PAT: ${{ secrets[format('GL_PAT_{0}', github.event.client_payload.gl.project_id)] }}
       # Tauri 更新器签名（tauri-cli v2.12 读取，名字与 GitLab 变量一致）。
       # 密钥只走 GitHub secrets，绝不进 client_payload（payload 是公开数据）
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.GL131_TAURI_SIGNING_PRIVATE_KEY }}
