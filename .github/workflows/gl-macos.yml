@@ -113,9 +113,19 @@ jobs:
           [ -n "$gl_server" ] && [ -n "$gl_sha" ] && [ -n "$GL_PATH" ] || {
             echo "payload incomplete (gl_server/gl_sha/gl_path)" >&2; exit 1; }
           [ -n "$GL_PAT" ] || { echo "secret GL_PAT missing" >&2; exit 1; }
-          git init -q src
-          git -C src remote add origin "https://oauth2:${GL_PAT}@${gl_server}/${GL_PATH}.git"
-          git -C src -c protocol.version=2 fetch --depth=1 --no-tags origin "${gl_sha}"
+          # 克隆走家庭宽带隧道，长传输偶发 TLS 断流（实测 15 分钟后 curl 56 中断）——
+          # 重试 3 次，每次重新 init（fetch 失败后的半包状态不可复用）
+          for attempt in 1 2 3; do
+            rm -rf src
+            git init -q src
+            git -C src remote add origin "https://oauth2:${GL_PAT}@${gl_server}/${GL_PATH}.git"
+            if git -C src -c protocol.version=2 fetch --depth=1 --no-tags origin "${gl_sha}"; then
+              break
+            fi
+            [ "$attempt" = 3 ] && { echo "clone 三连败（家庭链路抖动）" >&2; exit 1; }
+            echo "clone 第 ${attempt} 次失败（网络），30s 后重试…"
+            sleep 30
+          done
           git -C src checkout --detach FETCH_HEAD
           echo "checked out $(git -C src log --oneline -1 | head -c 72)"
 
