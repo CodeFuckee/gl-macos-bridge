@@ -112,6 +112,10 @@ jobs:
       # 密钥只走 GitHub secrets，绝不进 client_payload（payload 是公开数据）
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.GL131_TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.GL131_TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      # 应用内更新器的 GitLab 只读 token（updater.rs option_env! 编译期注入）。
+      # 与签名同款走 secrets：protected GitLab 变量不进桥接 payload，macOS 产物
+      # 缺它会让更新器静默降级为「未配置更新源」（v1.2.28-1.2.30 Mac 包实测）
+      WORK_REVIEW_UPDATER_GITLAB_TOKEN: ${{ secrets.GL131_WORK_REVIEW_UPDATER_GITLAB_TOKEN }}
     steps:
       - name: Checkout GitLab source at exact SHA
         env:
