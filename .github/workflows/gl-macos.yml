@@ -51,6 +51,9 @@ env:
      "133": {"gl_path": "chenkaidi/opentu",
              "mirror": "https://github.com/CodeFuckee/opentu",
              "runners": {"linux": "ubuntu-latest"},
+             "status": false},
+     "283": {"gl_path": "chenkaidi/dashboard",
+             "runners": {"macos": "macos-15"},
              "status": false}}
 
 jobs:
