@@ -119,6 +119,14 @@ jobs:
       # 与签名同款走 secrets：protected GitLab 变量不进桥接 payload，macOS 产物
       # 缺它会让更新器静默降级为「未配置更新源」（v1.2.28-1.2.30 Mac 包实测）
       WORK_REVIEW_UPDATER_GITLAB_TOKEN: ${{ secrets.GL131_WORK_REVIEW_UPDATER_GITLAB_TOKEN }}
+      # dashboard (283) Apple 签名+公证五件套：tauri-cli 原生变量名去掉 GL283_ 前缀
+      # 即被识别（导入证书 → Developer ID 签名 → 公证 → staple）；未配置时打包
+      # 脚本回退 ad-hoc 并显式告警
+      APPLE_CERTIFICATE: ${{ secrets.GL283_APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.GL283_APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.GL283_APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.GL283_APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.GL283_APPLE_TEAM_ID }}
     steps:
       - name: Checkout GitLab source at exact SHA
         env:
